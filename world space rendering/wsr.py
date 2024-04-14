@@ -26,26 +26,34 @@ class WSR:
     def get_window_size(self):
         return np.array(self.window.get_size())
 
-    def add_rect(self, color, pos, size, thick=None, z_index=0, stick=None):
+    def add_rect(self, color, pos, size, thick=None, z_index=0, stick=None, sreen_space_lock_axis=None):
+        pos = np.array(pos, dtype=np.float32)
+        size = np.array(size, dtype=np.float32)
+
         self.objects.append(
             [
                 Object.rect, 
                 [color, pos, size, thick], 
                 z_index,
-                stick
+                stick,
+                sreen_space_lock_axis
             ]
         )
     
-    def add_rect_corners(self, color, pos1, pos2, thick=None, z_index=0, stick=None):
-        self.add_rect(color, pos1, pos2 - pos1, thick, z_index, stick)
+    def add_rect_corners(self, color, pos1, pos2, thick=None, z_index=0, stick=None, sreen_space_lock_axis=None):
+        self.add_rect(color, pos1, pos2 - pos1, thick, z_index, stick, sreen_space_lock_axis)
 
-    def add_line(self, color, pos1, pos2, thick=1, z_index=0, stick=None):
+    def add_line(self, color, pos1, pos2, thick=1, z_index=0, stick=None, sreen_space_lock_axis=None):
+        pos1 = np.array(pos1, dtype=np.float32)
+        pos2 = np.array(pos2, dtype=np.float32)
+
         self.objects.append(
             [
                 Object.line, 
                 [color, pos1, pos2, thick],
                 z_index,
-                stick
+                stick,
+                sreen_space_lock_axis
             ]
         )
 
@@ -68,14 +76,20 @@ class WSR:
 
         win_size = self.get_window_size()
 
-        #print("rendering")
 
         for obj in sorted(self.objects, key=lambda x: x[2]):
             if obj[0] == Object.rect:
-                #print("rect")
                 color, pos, size, thick = obj[1]
                 pos = pos * self.view_zoom + self.view_pos
+                old_side = size
                 size = size * self.view_zoom
+
+                # idk why *= is not working properly here
+                if obj[4] is not None:
+                    if obj[4] == Axis.x:
+                        size[0] = old_side[0]
+                    elif obj[4] == Axis.y:
+                        size[1] = old_side[1]
 
                 if obj[3] is not None:
                     if obj[3] == Dirs.left:
@@ -87,17 +101,30 @@ class WSR:
                     elif obj[3] == Dirs.down:
                         pos[1] = win_size[1] - size[1]
 
+                pos = pos.astype(int)
+                size = size.astype(int)
+
+
 
                 if thick is None:
                     pygame.draw.rect(self.window, color, (*pos, *size))
                 else:
+                    #print((*pos, *size))
                     pygame.draw.rect(self.window, color, (*pos, *size), thick)
 
+
             elif obj[0] == Object.line:
-                #print("line")
+                if obj[3] is not None:
+                    raise ValueError("stick not yet implemented for lines")
+                if obj[4] is not None:
+                    raise ValueError("sreen_space_lock_axis not yet implemented for lines")
+
                 color, pos1, pos2, thick = obj[1]
                 pos1 = pos1 * self.view_zoom + self.view_pos
                 pos2 = pos2 * self.view_zoom + self.view_pos
+
+                pos1 = pos1.astype(int)
+                pos2 = pos2.astype(int)
 
                 pygame.draw.line(self.window, color, pos1, pos2, thick)
 
@@ -113,11 +140,20 @@ if __name__ == "__main__":
 
     wsr = WSR(window)
 
-    wsr.add_rect((255, 0, 0), np.array([100, 100]), np.array([100, 100]), stick=Dirs.left)
-    wsr.add_rect((0, 255, 0), np.array([200, 200]), np.array([100, 100]))
-    wsr.add_line((0, 0, 255), np.array([300, 300]), np.array([400, 400]))
+    wsr.add_rect((255, 0, 0), (100, 100), (100, 100), stick=Dirs.left, sreen_space_lock_axis=Axis.x)
+    wsr.add_rect((0, 255, 0), (200, 200), (100, 100))
+    wsr.add_line((0, 0, 255), (300, 300), (400, 400))
 
     wsr.add_rect((255, 255, 255), np.array([0, 0]), window_size, thick=3, z_index=-1)
+
+    for i in range(200):
+        wsr.add_rect(
+            np.random.randint(0, 255, 3),
+            np.random.randint(0, window_size),
+            np.random.randint(10, 100, 2),
+            z_index = -2
+        )
+
 
     while True:
         scroll_rel = 0
