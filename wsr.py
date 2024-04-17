@@ -17,6 +17,7 @@ class Axis:
 class Object:
     rect = 0
     line = 1
+    curve = 2
 
 class WSR:
     def __init__(self, pg_window, init_view_pos=(0, 0), init_view_zoom=(1, 1), debug=False):
@@ -82,6 +83,21 @@ class WSR:
 
         self.add_line(color, pos, pos + pos_delta, thick, z_index, stick, screen_space_lock_axis)
 
+    def add_curve(self, color, y_points, width, thick=1, z_index=0):
+        y_points = np.array(y_points, dtype=np.float32)
+
+        # Generate the indices for the original array
+        x_old = np.linspace(0, 1, len(y_points))
+
+
+        self.objects.append(
+            [
+                Object.curve,
+                [color, y_points, width, thick, x_old],
+                z_index
+            ]
+        )
+
     def move_view_screen_space(self, delta):
         self.view_pos += delta
 
@@ -92,9 +108,6 @@ class WSR:
         else:
             self.view_zoom[axis] *= zoom
             self.view_pos[axis] += (center[axis] - self.view_pos[axis]) * (1 - zoom)
-
-
-        
 
     def render(self):
         #print(self.view_pos, self.view_zoom)
@@ -162,6 +175,30 @@ class WSR:
                 pos2 = pos2.astype(int)
 
                 pygame.draw.line(self.window, color, pos1, pos2, thick)
+
+            elif obj[0] == Object.curve:
+                color, y_points, width, thick, x_old = obj[1]
+
+                # let's assume start point of curve is 0.0 and end is 1.0
+                # we need to calculate what range from 0.0 to 1.0 is visible on screen
+                
+                left_range = -self.view_pos[0] / self.view_zoom[0] / width
+                right_range = (win_size[0] - self.view_pos[0]) / self.view_zoom[0] / width
+
+                #print(left_range, right_range)
+
+                x_new = np.linspace(left_range, right_range, win_size[0])
+
+                y_new = np.interp(x_new, x_old, y_points)
+                
+                y_new = y_new * self.view_zoom[1] + self.view_pos[1]
+
+                y_new = y_new.astype(int)
+
+                for i in range(1, len(y_new)):
+                    a = (i - 1, y_new[i - 1])
+                    b = (i, y_new[i])
+                    pygame.draw.line(self.window, color, a, b, thick)
 
 
 

@@ -91,9 +91,13 @@ new_path = os.path.join(new_path, file + "_pitch_curve.pkl")
 test = len(pitch) / (sample_rate / hop_length)
 print(test, test / 60)
 
+# calculate and print song length in samples
+test2 = len(pitch) / hop_length
+
 print(len(pitch), sample_rate, hop_length)
 
 
 # save pitch curve and confidence
 with open(new_path, "wb") as f:
-    pickle.dump((pitch, confidence, sample_rate, hop_length), f)
+    #pickle.dump((pitch, confidence, sample_rate, hop_length), f)
+    pickle.dump((pitch, confidence, len(audio[0]), bpm, sample_rate), f)

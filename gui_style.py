@@ -11,6 +11,8 @@ class Colors:
     beat_line = (16,) * 3
     step_line = (25,) * 3
 
+    reference_curve = (180, 255, 150)
+
 
 class Style:
     white_note_width = 80
