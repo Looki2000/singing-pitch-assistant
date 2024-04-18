@@ -5,6 +5,8 @@ from misc import *
 from gui_style import Colors, Style
 import pickle
 import os
+import threading
+import time
 
 ######## CONFIG ########
 
@@ -14,9 +16,11 @@ fps_limit = 240
 
 # inclusive range of keys on the left side of the screen in octaves
 #rendered_octaves = (1, 6)
-rendered_octaves = (0, 6)
+rendered_octaves = (2, 4)
 
-pitch_file = "test2_pitch_curve.pkl"
+pitch_file = "test_pitch_curve.pkl"
+
+coeff_tresh = 0.5
 
 ########################
 
@@ -58,17 +62,22 @@ pygame.init()
 window = pygame.display.set_mode(window_size, pygame.RESIZABLE)
 clock = pygame.time.Clock()
 
+
+init_zoom = (25, 50)
+
 wsr = WSR(
     window,
-    init_view_pos=(0, window_size[1]),
-    init_view_zoom=(25, 50),
+    init_view_pos=(0, window_size[1] + rendered_octaves[0] * 12 * init_zoom[1]),
+    init_view_zoom=init_zoom,
     debug=False
 )
 
 
 # Z index
-# 3 - black keys
-# 2 - white keys
+# 11 - black keys
+# 10 - white keys
+# 5 - play head
+# 2 - detected curve
 # 1 - reference curve
 # 0 - grid lines
 # -1 - black keys grid
@@ -92,11 +101,20 @@ wsr = WSR(
 rendered_octaves = (rendered_octaves[0], rendered_octaves[1] + 1)
 
 # white keys
+#wsr.add_rect_corners(
+#    Colors.white_notes,
+#    (0, -rendered_octaves[1] * 12),
+#    (Style.white_note_width, rendered_octaves[0] * 12),
+#    z_index=2,
+#    stick=Dirs.left,
+#    screen_space_lock_axis=Axis.x
+#)
+
 wsr.add_rect_corners(
     Colors.white_notes,
     (0, -rendered_octaves[1] * 12),
-    (Style.white_note_width, rendered_octaves[0] * 12),
-    z_index=2,
+    (Style.white_note_width, -rendered_octaves[0] * 12),
+    z_index=10,
     stick=Dirs.left,
     screen_space_lock_axis=Axis.x
 )
@@ -127,7 +145,7 @@ for i in range(rendered_notes[0], rendered_notes[1] + 1):
             Colors.black_notes,
             (0, -i),
             (Style.black_note_width, -1),
-            z_index=3,
+            z_index=11,
             stick=Dirs.left,
             screen_space_lock_axis=Axis.x
         )
@@ -188,13 +206,117 @@ wsr.add_curve(
     pitch_curve,
     width = step_duration,
     y_color_coeff = confidence_curve,
-    color_secondary = Colors.reference_curve_sec,
+    coeff_tresh = coeff_tresh,
+    #color_secondary = Colors.reference_curve_sec,
     thick=3,
     z_index=1
 )
 
+# play head
+init_play_head_pos = 0
+play_head_pos = init_play_head_pos
+play_head = wsr.add_line(
+    Colors.play_head,
+    (init_play_head_pos, -rendered_notes[0]),
+    (init_play_head_pos, -rendered_notes[1]),
+    thick=3,
+    z_index=5
+)
 
 
+detected_curve = np.zeros_like(pitch_curve)
+
+# detected curve
+detected_curve_object = wsr.add_curve(
+    Colors.detected_curve,
+    detected_curve,
+    width = step_duration,
+    thick=3,
+    z_index=2
+)
+
+
+
+
+def set_play_head(pos):
+    play_head[1][1][0] = pos
+    play_head[1][2][0] = pos
+
+
+def choices_menu(choices):
+    while True:
+        # "=" multiplied by len of longest choice
+        separator = (len(max(choices, key=len)) + 3) * "="
+        print("\n" + separator)
+        for i, choice in enumerate(choices):
+            print(f"{i + 1}. {choice}")
+        print(separator)
+
+        choice = input(" > ")
+
+        bad = False
+
+        try:
+            choice = int(choice)
+        except ValueError:
+            bad = True
+
+        if choice < 1 or choice > len(choices) or bad:
+            print(f"\nInput must be a number between 1 and {len(choices)}!")
+            continue
+
+        return choice - 1
+
+def num_input(prompt, min_val=None, max_val=None, is_float=False):
+    while True:
+        num = input("\n" + prompt)
+
+        bad = False
+
+        try:
+            num = float(num) if is_float else int(num)
+        except ValueError:
+            bad = True
+
+        if min_val is not None and num < min_val:
+            bad = True
+        elif max_val is not None and num > max_val:
+            bad = True
+
+        if bad:
+            print(f"\nInput must be a number between {min_val} and {max_val}!")
+            continue
+
+        return num
+
+
+bars_to_record = 4
+
+def cli():
+    global init_play_head_pos, bars_to_record
+
+    while True:
+
+        choices = (
+            f"Set initial play head position ({init_play_head_pos + 1})",
+            f"Set amount of bars to record ({bars_to_record})",
+        )
+
+        choice = choices_menu(choices)
+
+        if choice == 0:
+            init_play_head_pos = num_input(" position in bars > ", min_val=1, is_float=True) - 1
+            play_head_pos = init_play_head_pos
+            set_play_head(init_play_head_pos * 16)
+        elif choice == 1:
+            bars_to_record = num_input(" amount of bars > ", min_val=1)
+
+
+cli_thread = threading.Thread(target=cli, daemon=True)
+cli_thread.start()
+
+
+recording = False
 
 while True:
     scroll_rel = 0
@@ -206,6 +328,25 @@ while True:
 
         if event.type == pygame.MOUSEWHEEL:
             scroll_rel = event.y
+
+        # space key
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE and not recording:
+            recording = True
+            rec_start = time.perf_counter()
+
+    
+    if recording:
+        # move play head based on bpm
+        play_head_pos = (time.perf_counter() - rec_start) / 240 * bpm
+
+
+        set_play_head(play_head_pos * 16)
+
+        if play_head_pos >= bars_to_record:
+            recording = False
+            play_head_pos = init_play_head_pos
+            set_play_head(init_play_head_pos * 16)
+
 
 
     keys = pygame.key.get_pressed()

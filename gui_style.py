@@ -11,8 +11,12 @@ class Colors:
     beat_line = (16,) * 3
     step_line = (25,) * 3
 
-    reference_curve = (113, 255, 56)
-    reference_curve_sec = (0,) * 3
+    reference_curve = (100, 255, 50)
+    #reference_curve_sec = (0,) * 3
+
+    play_head = (255,) * 3
+
+    detected_curve = (255, 150, 50)
 
 
 class Style:

@@ -77,13 +77,15 @@ class WSR:
 
         self.need_sort = True
 
+        return self.objects[-1]
+
     def add_line_delta(self, color, pos, pos_delta, thick=1, z_index=0, stick=None, screen_space_lock_axis=None):
         pos = np.array(pos, dtype=np.float32)
         pos_delta = np.array(pos_delta, dtype=np.float32)
 
         self.add_line(color, pos, pos + pos_delta, thick, z_index, stick, screen_space_lock_axis)
 
-    def add_curve(self, color, y_points, width, y_color_coeff=None, color_secondary=(0,0,0), thick=1, z_index=0):
+    def add_curve(self, color, y_points, width, y_color_coeff=None, coeff_tresh=None, color_secondary=(0,0,0), thick=1, z_index=0):
         y_points = np.array(y_points, dtype=np.float32)
 
         # Generate the indices for the original array
@@ -96,10 +98,14 @@ class WSR:
         self.objects.append(
             [
                 Object.curve,
-                [color, y_points, width, y_color_coeff, color_secondary, thick, x_old],
+                [color, y_points, width, y_color_coeff, coeff_tresh, color_secondary, thick, x_old],
                 z_index
             ]
         )
+
+        self.need_sort = True
+
+        return self.objects[-1]
 
     def move_view_screen_space(self, delta):
         self.view_pos += delta
@@ -180,7 +186,7 @@ class WSR:
                 pygame.draw.line(self.window, color, pos1, pos2, thick)
 
             elif obj[0] == Object.curve:
-                color, y_points, width, y_color_coeff, color_secondary, thick, x_old = obj[1]
+                color, y_points, width, y_color_coeff, coeff_tresh, color_secondary, thick, x_old = obj[1]
 
                 # let's assume start point of curve is 0.0 and end is 1.0
                 # we need to calculate what range from 0.0 to 1.0 is visible on screen
@@ -194,7 +200,7 @@ class WSR:
 
                 y_new = np.interp(x_new, x_old, y_points)
 
-                if y_color_coeff is not None:
+                if y_color_coeff is not None and coeff_tresh is None:
                     color_new = np.interp(x_new, x_old, y_color_coeff)
                     # expand to 3 channels
                     color_new = np.expand_dims(color_new, axis=1)
@@ -203,15 +209,23 @@ class WSR:
                     color_new = color_new * color + (1 - color_new) * color_secondary
 
                     color_new = color_new.astype(int)
+
+                elif coeff_tresh is not None:
+                    coeff_new = np.interp(x_new, x_old, y_color_coeff)
+
+                    coeff_new = coeff_new > coeff_tresh
+                
                 
                 y_new = y_new * self.view_zoom[1] + self.view_pos[1]
 
                 y_new = y_new.astype(int)
 
                 for i in range(1, len(y_new)):
+                    if coeff_tresh is not None and not coeff_new[i]:
+                        continue
                     a = (i - 1, y_new[i - 1])
                     b = (i, y_new[i])
-                    col = color if y_color_coeff is None else tuple(color_new[i])
+                    col = tuple(color_new[i]) if (y_color_coeff is not None and coeff_tresh is None) else color
                     pygame.draw.line(self.window, col, a, b, thick)
 
 
