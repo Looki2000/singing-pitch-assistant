@@ -16,7 +16,7 @@ fps_limit = 240
 #rendered_octaves = (1, 6)
 rendered_octaves = (0, 6)
 
-pitch_file = "test_pitch_curve.pkl"
+pitch_file = "test2_pitch_curve.pkl"
 
 ########################
 
@@ -187,11 +187,11 @@ wsr.add_curve(
     Colors.reference_curve,
     pitch_curve,
     width = step_duration,
+    y_color_coeff = confidence_curve,
+    color_secondary = Colors.reference_curve_sec,
     thick=3,
     z_index=1
 )
-
-
 
 
 

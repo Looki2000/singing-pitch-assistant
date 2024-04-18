@@ -83,17 +83,20 @@ class WSR:
 
         self.add_line(color, pos, pos + pos_delta, thick, z_index, stick, screen_space_lock_axis)
 
-    def add_curve(self, color, y_points, width, thick=1, z_index=0):
+    def add_curve(self, color, y_points, width, y_color_coeff=None, color_secondary=(0,0,0), thick=1, z_index=0):
         y_points = np.array(y_points, dtype=np.float32)
 
         # Generate the indices for the original array
         x_old = np.linspace(0, 1, len(y_points))
 
+        if y_color_coeff is not None and len(y_points) != len(y_color_coeff):
+            raise ValueError("y_points and y_color_coeff must have the same length!")
+
 
         self.objects.append(
             [
                 Object.curve,
-                [color, y_points, width, thick, x_old],
+                [color, y_points, width, y_color_coeff, color_secondary, thick, x_old],
                 z_index
             ]
         )
@@ -177,7 +180,7 @@ class WSR:
                 pygame.draw.line(self.window, color, pos1, pos2, thick)
 
             elif obj[0] == Object.curve:
-                color, y_points, width, thick, x_old = obj[1]
+                color, y_points, width, y_color_coeff, color_secondary, thick, x_old = obj[1]
 
                 # let's assume start point of curve is 0.0 and end is 1.0
                 # we need to calculate what range from 0.0 to 1.0 is visible on screen
@@ -190,6 +193,16 @@ class WSR:
                 x_new = np.linspace(left_range, right_range, win_size[0])
 
                 y_new = np.interp(x_new, x_old, y_points)
+
+                if y_color_coeff is not None:
+                    color_new = np.interp(x_new, x_old, y_color_coeff)
+                    # expand to 3 channels
+                    color_new = np.expand_dims(color_new, axis=1)
+                    color_new = np.repeat(color_new, 3, axis=1)
+
+                    color_new = color_new * color + (1 - color_new) * color_secondary
+
+                    color_new = color_new.astype(int)
                 
                 y_new = y_new * self.view_zoom[1] + self.view_pos[1]
 
@@ -198,7 +211,8 @@ class WSR:
                 for i in range(1, len(y_new)):
                     a = (i - 1, y_new[i - 1])
                     b = (i, y_new[i])
-                    pygame.draw.line(self.window, color, a, b, thick)
+                    col = color if y_color_coeff is None else tuple(color_new[i])
+                    pygame.draw.line(self.window, col, a, b, thick)
 
 
 
