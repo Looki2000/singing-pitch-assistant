@@ -16,7 +16,7 @@ import librosa
 
 window_size = (1280, 720)
 # its better for it to be higher than your monitor refresh rate because vsync is not working properly with resizable window in pygame and there would be stuttering
-fps_limit = 240
+fps_limit = 90
 
 # inclusive range of keys on the left side of the screen in octaves
 #rendered_octaves = (1, 6)
