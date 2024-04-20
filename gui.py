@@ -7,6 +7,17 @@ import pickle
 import os
 import threading
 import time
+from pynput.keyboard import Key, Listener
+import pyaudio
+import librosa
+
+
+#### TO DO ####
+
+# render and update only if needed
+
+###############
+
 
 ######## CONFIG ########
 
@@ -21,6 +32,11 @@ rendered_octaves = (2, 4)
 pitch_file = "test_pitch_curve.pkl"
 
 coeff_tresh = 0.5
+
+rec_sample_rate = 48000
+rec_buffer_size = 1024 * 2
+max_detect_deviations = 10
+
 
 ########################
 
@@ -77,6 +93,7 @@ wsr = WSR(
 # 11 - black keys
 # 10 - white keys
 # 5 - play head
+# 3 - detected line
 # 2 - detected curve
 # 1 - reference curve
 # 0 - grid lines
@@ -212,6 +229,7 @@ wsr.add_curve(
     z_index=1
 )
 
+
 # play head
 init_play_head_pos = 0
 play_head_pos = init_play_head_pos
@@ -224,17 +242,24 @@ play_head = wsr.add_line(
 )
 
 
-detected_curve = np.zeros_like(pitch_curve)
 
 # detected curve
-detected_curve_object = wsr.add_curve(
+detected_curve_obj = wsr.add_curve(
     Colors.detected_curve,
-    detected_curve,
+    np.zeros_like(pitch_curve),
     width = step_duration,
     thick=3,
     z_index=2
 )
 
+# detected line
+detected_line_obj = wsr.add_line(
+    Colors.detected_line,
+    (0, 0),
+    (step_duration, 0),
+    thick=3,
+    z_index=3
+)
 
 
 
@@ -316,10 +341,140 @@ cli_thread = threading.Thread(target=cli, daemon=True)
 cli_thread.start()
 
 
+# calculate curve scale that will allow to convert bars to curve index
+curve_scale = len(pitch_curve) / step_duration * 16
+
+
 recording = False
+
+space_pressed = False
+def space_press(key):
+    global space_pressed
+    if key == Key.space:
+        space_pressed = True
+
+listener = Listener(on_press=space_press)
+listener.start()
+
+
+
+# init pyaudio
+p = pyaudio.PyAudio()
+
+# open stream
+stream = p.open(
+    format=pyaudio.paInt16,
+    channels=1,
+    rate=rec_sample_rate,
+    input=True,
+    frames_per_buffer=rec_buffer_size
+)
+
+
+fmin = librosa.note_to_hz("C1")
+fmax = librosa.note_to_hz("C7")
+def recording_thread_func():
+    global pitch_detect_values
+    
+    while True:
+        if not_recording_detect == False and not recording:
+            time.sleep(0.01)
+            continue
+
+        #print("recording")
+        data = stream.read(rec_buffer_size)
+
+        # convert to numpy array
+        data = np.frombuffer(data, dtype=np.int16)
+
+        # convert to float
+        data = data.astype(np.float32) / 32768
+        
+        #print("detecting pitch")
+        # pitch detection
+        f0 = librosa.yin(
+            data,
+            frame_length=rec_buffer_size,
+            sr=rec_sample_rate,
+            fmin=fmin,
+            fmax=fmax
+        )
+
+        # cut first value
+        f0 = f0[1:]
+        
+        #f0_before = f0.copy()
+        #
+        ### remove outliers
+        #mean = np.mean(f0)
+        #standard_deviation = np.std(f0)
+        #distance_from_mean = abs(f0 - mean)
+        #not_outlier = distance_from_mean < max_detect_deviations * standard_deviation
+        #f0 = f0[not_outlier]
+        #
+        #print(f0_before, f0)
+
+        pitch_detect_values = pitch_detect_values + f0.tolist()
+
+
+not_recording_detect = True
+
+pitch_detect_values = []
+
+rec_thread = threading.Thread(target=recording_thread_func, daemon=True)
+rec_thread.start()
+
+last_detected_pitch = 1
+
+
+refresh_needed = False
 
 while True:
     scroll_rel = 0
+
+
+    if recording:
+        # move play head based on bpm
+        play_head_pos = (time.perf_counter() - rec_start) / 240 * bpm + init_play_head_pos
+
+
+    if len(pitch_detect_values) == 0:
+        detected_pitch = last_detected_pitch
+        #print("No pitch detected!")
+    else:
+        detected_pitch = np.mean(pitch_detect_values)
+        pitch_detect_values = []
+        #print(f"Detected pitch: {detected_pitch}")
+
+        last_detected_pitch = detected_pitch
+
+    detected_pitch = -12 * np.log2(detected_pitch / 440) - 57.5
+
+
+    if recording:
+        detected_curve_obj[1][1][int(old_play_head_pos * curve_scale):int(play_head_pos * curve_scale)] = detected_pitch
+
+
+        set_play_head(play_head_pos * 16)
+
+        if play_head_pos >= bars_to_record:
+            recording = False
+            space_pressed = False
+            play_head_pos = init_play_head_pos
+            set_play_head(init_play_head_pos * 16)
+            
+            # unhide detected line
+            detected_line_obj[5] = False
+
+        refresh_needed = True
+
+    elif not_recording_detect:
+        # set line y position to detected pitch
+        detected_line_obj[1][1][1] = detected_pitch
+        detected_line_obj[1][2][1] = detected_pitch
+
+        refresh_needed = True
+
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -329,23 +484,30 @@ while True:
         if event.type == pygame.MOUSEWHEEL:
             scroll_rel = event.y
 
-        # space key
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE and not recording:
-            recording = True
-            rec_start = time.perf_counter()
+        elif event.type == pygame.KEYDOWN:
+            # switch not_recording_detect
+            if event.key == pygame.K_p:
+                not_recording_detect = not not_recording_detect
 
-    
+        ## space key
+        #elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE and not recording:
+        #    recording = True
+        #    detected_curve_obj[1][1] = np.zeros_like(pitch_curve)
+        #    rec_start = time.perf_counter()
+    if space_pressed and not recording:
+        recording = True
+
+        # hide detected line
+        detected_line_obj[5] = True
+
+        detected_curve_obj[1][1] = np.zeros_like(pitch_curve)
+        rec_start = time.perf_counter()
+
+        refresh_needed = True
+
+
     if recording:
-        # move play head based on bpm
-        play_head_pos = (time.perf_counter() - rec_start) / 240 * bpm
-
-
-        set_play_head(play_head_pos * 16)
-
-        if play_head_pos >= bars_to_record:
-            recording = False
-            play_head_pos = init_play_head_pos
-            set_play_head(init_play_head_pos * 16)
+        old_play_head_pos = play_head_pos
 
 
 
@@ -359,18 +521,30 @@ while True:
     # y zoom
     if keys[pygame.K_LCTRL] and mouse_buttons[1]:
         wsr.zoom_view(1 - mouse_rel[1] / 100, mouse_pos, Axis.y)
+
+        refresh_needed = True
     
     # 2D movement
     elif mouse_buttons[1]:
         wsr.move_view_screen_space(mouse_rel)
 
+        refresh_needed = True
+
     elif keys[pygame.K_LCTRL] and scroll_rel:
         wsr.zoom_view(1 + scroll_rel / 5, mouse_pos, axis=Axis.x)
 
+        refresh_needed = True
 
-    window.fill(Colors.background)
 
-    wsr.render()
+    if refresh_needed:
+        window.fill(Colors.background)
 
-    pygame.display.update()
+        wsr.render()
+
+        pygame.display.update()
+
+        refresh_needed = False
+
+        #print("refreshed")
+
     clock.tick(fps_limit)

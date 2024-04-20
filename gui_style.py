@@ -17,6 +17,7 @@ class Colors:
     play_head = (255,) * 3
 
     detected_curve = (255, 150, 50)
+    detected_line = (147, 128, 255)
 
 
 class Style:

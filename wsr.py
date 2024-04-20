@@ -32,7 +32,7 @@ class WSR:
     def get_window_size(self):
         return np.array(self.window.get_size())
 
-    def add_rect(self, color, pos, size, thick=None, z_index=0, stick=None, screen_space_lock_axis=None):
+    def add_rect(self, color, pos, size, thick=None, z_index=0, stick=None, screen_space_lock_axis=None, hidden=False):
         pos = np.array(pos, dtype=np.float32)
         size = np.array(size, dtype=np.float32)
 
@@ -50,18 +50,19 @@ class WSR:
                 [color, pos, size, thick], 
                 z_index,
                 stick,
-                screen_space_lock_axis
+                screen_space_lock_axis,
+                hidden
             ]
         )
 
         self.need_sort = True
     
-    def add_rect_corners(self, color, pos1, pos2, thick=None, z_index=0, stick=None, screen_space_lock_axis=None):
+    def add_rect_corners(self, color, pos1, pos2, thick=None, z_index=0, stick=None, screen_space_lock_axis=None, hidden=False):
         pos1 = np.array(pos1, dtype=np.float32)
         pos2 = np.array(pos2, dtype=np.float32)
-        self.add_rect(color, pos1, pos2 - pos1, thick, z_index, stick, screen_space_lock_axis)
+        self.add_rect(color, pos1, pos2 - pos1, thick, z_index, stick, screen_space_lock_axis, hidden)
 
-    def add_line(self, color, pos1, pos2, thick=1, z_index=0, stick=None, screen_space_lock_axis=None):
+    def add_line(self, color, pos1, pos2, thick=1, z_index=0, stick=None, screen_space_lock_axis=None, hidden=False):
         pos1 = np.array(pos1, dtype=np.float32)
         pos2 = np.array(pos2, dtype=np.float32)
 
@@ -71,7 +72,8 @@ class WSR:
                 [color, pos1, pos2, thick],
                 z_index,
                 stick,
-                screen_space_lock_axis
+                screen_space_lock_axis,
+                hidden
             ]
         )
 
@@ -79,11 +81,11 @@ class WSR:
 
         return self.objects[-1]
 
-    def add_line_delta(self, color, pos, pos_delta, thick=1, z_index=0, stick=None, screen_space_lock_axis=None):
+    def add_line_delta(self, color, pos, pos_delta, thick=1, z_index=0, stick=None, screen_space_lock_axis=None, hidden=False):
         pos = np.array(pos, dtype=np.float32)
         pos_delta = np.array(pos_delta, dtype=np.float32)
 
-        self.add_line(color, pos, pos + pos_delta, thick, z_index, stick, screen_space_lock_axis)
+        self.add_line(color, pos, pos + pos_delta, thick, z_index, stick, screen_space_lock_axis, hidden)
 
     def add_curve(self, color, y_points, width, y_color_coeff=None, coeff_tresh=None, color_secondary=(0,0,0), thick=1, z_index=0):
         y_points = np.array(y_points, dtype=np.float32)
@@ -132,6 +134,9 @@ class WSR:
         #for obj in sorted(self.objects, key=lambda x: x[2]):
         for i, obj in enumerate(self.objects):
             if obj[0] == Object.rect:
+                if obj[5]:
+                    continue
+
                 color, pos, size, thick = obj[1]
                 pos, size = pos.copy(), size.copy()
                 pos = pos * self.view_zoom + self.view_pos
@@ -170,6 +175,9 @@ class WSR:
 
 
             elif obj[0] == Object.line:
+                if obj[5]:
+                    continue
+
                 if obj[3] is not None:
                     raise ValueError("stick not yet implemented for lines")
                 if obj[4] is not None:
