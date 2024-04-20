@@ -12,13 +12,6 @@ import pyaudio
 import librosa
 
 
-#### TO DO ####
-
-# render and update only if needed
-
-###############
-
-
 ######## CONFIG ########
 
 window_size = (1280, 720)
