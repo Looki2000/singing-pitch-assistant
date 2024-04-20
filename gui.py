@@ -450,7 +450,7 @@ while True:
 
         set_play_head(play_head_pos * 16)
 
-        if play_head_pos >= bars_to_record:
+        if play_head_pos >= bars_to_record + init_play_head_pos:
             recording = False
             space_pressed = False
             play_head_pos = init_play_head_pos
