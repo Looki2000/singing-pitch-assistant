@@ -6,6 +6,9 @@ import soundfile as sf
 import os
 import pickle
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
 cwd = os.path.dirname(os.path.realpath(__file__))
 
 audio_path = input("audio path or drag and drop > ")
@@ -22,12 +25,14 @@ else:
 
 audio, sample_rate = sf.read(audio_path)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
 
 # mix to mono if needed
 if audio.ndim > 1:
     audio = np.mean(audio, axis=1)
+
+## get only left channel if stereo
+#if audio.ndim > 1:
+#    audio = audio[:, 0]
 
 audio = torch.tensor([audio], dtype=torch.float32).to(device)
 

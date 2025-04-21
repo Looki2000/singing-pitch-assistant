@@ -20,7 +20,7 @@ fps_limit = 90
 
 # inclusive range of keys on the left side of the screen in octaves
 #rendered_octaves = (1, 6)
-rendered_octaves = (2, 4)
+rendered_octaves = (2, 5)
 
 pitch_file = "test_pitch_curve.pkl"
 
@@ -29,6 +29,8 @@ coeff_tresh = 0.5
 rec_sample_rate = 48000
 rec_buffer_size = 1024 * 2
 max_detect_deviations = 10
+
+pitch_file_hop_length = int(rec_sample_rate / 200.)
 
 
 ########################
@@ -236,11 +238,21 @@ play_head = wsr.add_line(
 
 
 
+## detected curve
+#detected_curve_obj = wsr.add_curve(
+#    Colors.detected_curve,
+#    np.zeros_like(pitch_curve),
+#    width = step_duration,
+#    thick=3,
+#    z_index=2
+#)
 # detected curve
 detected_curve_obj = wsr.add_curve(
     Colors.detected_curve,
     np.zeros_like(pitch_curve),
     width = step_duration,
+    y_color_coeff = np.ones_like(pitch_curve),
+    coeff_tresh = 0.5,
     thick=3,
     z_index=2
 )
@@ -383,8 +395,12 @@ def recording_thread_func():
         # convert to float
         data = data.astype(np.float32) / 32768
         
+        # if recording add to recorded_audio
+        if recording:
+            recorded_audio.extend(data.tolist())
+        
         #print("detecting pitch")
-        # pitch detection
+        # low quality pitch detection
         f0 = librosa.yin(
             data,
             frame_length=rec_buffer_size,
@@ -393,7 +409,7 @@ def recording_thread_func():
             fmax=fmax
         )
 
-        # cut first value
+        # cut the first value off
         f0 = f0[1:]
         
         #f0_before = f0.copy()
@@ -416,6 +432,49 @@ pitch_detect_values = []
 
 rec_thread = threading.Thread(target=recording_thread_func, daemon=True)
 rec_thread.start()
+
+
+def refine_and_set_pitch_curve():
+    audio = np.array(recorded_audio, dtype=np.float32)
+    
+    offset = init_play_head_pos * curve_scale
+    
+    #print(audio.shape)
+    
+    #print(f"audio len seconds: {len(audio) / rec_sample_rate}")
+    
+    scale = 8
+    
+    # high quality pitch detection on recorded_audio
+    f0, voiced_flag, voiced_probs = librosa.pyin(
+        audio,
+        hop_length=pitch_file_hop_length*scale,
+        sr=rec_sample_rate,
+        fmin=fmin,
+        fmax=fmax,
+    )
+    
+    #print(len(f0))
+    #print(len(detected_curve_obj[1][1]))
+    
+    no_nan_mask = ~np.isnan(f0)
+    final_f0 = np.zeros_like(f0)
+    final_f0[no_nan_mask] = -12 * np.log2(f0[no_nan_mask] / 440) - 57.5
+    
+    # interpolate by scale
+    final_f0 = np.repeat(final_f0, scale)
+    
+    
+    no_nan_mask = np.repeat(no_nan_mask, scale)
+    final_no_nan_mask = np.zeros_like(detected_curve_obj[1][3])
+    final_no_nan_mask[int(offset):int(offset + len(no_nan_mask))] = no_nan_mask
+    
+    
+    
+    
+    detected_curve_obj[1][1][int(offset):int(offset + len(final_f0))] = final_f0
+    detected_curve_obj[1][3] = final_no_nan_mask
+
 
 last_detected_pitch = 1
 
@@ -445,16 +504,22 @@ while True:
 
 
     if recording:
+        #print("recording")
         detected_curve_obj[1][1][int(old_play_head_pos * curve_scale):int(play_head_pos * curve_scale)] = detected_pitch
 
 
         set_play_head(play_head_pos * 16)
 
         if play_head_pos >= bars_to_record + init_play_head_pos:
+            #print("recording done")
             recording = False
             space_pressed = False
             play_head_pos = init_play_head_pos
             set_play_head(init_play_head_pos * 16)
+            
+            # refine pitch
+            refine_thread = threading.Thread(target=refine_and_set_pitch_curve, daemon=True)
+            refine_thread.start()
             
             # unhide detected line
             detected_line_obj[5] = False
@@ -489,11 +554,13 @@ while True:
         #    rec_start = time.perf_counter()
     if space_pressed and not recording:
         recording = True
+        recorded_audio = []
 
         # hide detected line
         detected_line_obj[5] = True
 
         detected_curve_obj[1][1] = np.zeros_like(pitch_curve)
+        detected_curve_obj[1][3] = np.ones_like(pitch_curve)
         rec_start = time.perf_counter()
 
         refresh_needed = True
